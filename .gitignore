@@ -1,0 +1,13 @@
+# Ignore unnecessary folders:
+venv/
+__pycache__/
+.idea/
+
+# Ignore experimental python files
+test.py
+test_2.py
+test_3.py
+db.py
+
+# Ignore bat files
+*.bat
