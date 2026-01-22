@@ -6,9 +6,9 @@ import os
 
 app = Flask(__name__)
 
-BOT_TOKEN = os.environ.get("solana_bot_token")
+BOT_TOKEN = os.environ.get("SOLANA_BOT_TOKEN")
 TELEGRAM_API = "https://api.telegram.org/bot"
-DATABASE_URL = os.environ.get("solana_bot_db_url")
+DATABASE_URL = os.environ.get("SOLANA_BOT_DB_URL")
 
 async def subscribe_user(chat_id: Union[int, str]) -> None:
     try:
