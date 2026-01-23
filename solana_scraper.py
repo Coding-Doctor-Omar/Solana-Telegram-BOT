@@ -156,7 +156,7 @@ async def main() -> None:
         password=LOCAL_DB_PASSWORD,
         database="solana_bot",
         host="localhost",
-        port=5433
+        port=5432
     )
     # Get changed or new token data (local db)
     new_tokens = await get_new_or_changed_tokens(tokens, tokens_db)
