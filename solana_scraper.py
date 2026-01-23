@@ -41,17 +41,16 @@ def get_token_data() -> list:
 
     return token_data
 
-async def get_new_or_changed_tokens(tokens: list) -> list:
+async def get_new_or_changed_tokens(tokens: list, db) -> list:
     new_or_changed_tokens = []
-    async with POOL.acquire() as db:
-        for token in tokens:
-            rows = await db.fetch("SELECT * FROM solana_tokens WHERE address = $1", token["address"])
-            if rows: # Check if token is already in the db.
-                stored_token = rows[0]
-                if token["price"] != stored_token["price"] or token["liquidity"] != stored_token["liquidity"]: # If there is any change, store the token.
-                    new_or_changed_tokens.append(token)
-            else: # If not in the db, store the token.
-                new_or_changed_tokens.append(token)
+    for token in tokens:
+        rows = await db.fetch("SELECT * FROM solana_tokens WHERE address = $1", token["address"])
+        if rows: # Check if token is already in the db.
+            stored_token = rows[0]
+            if token["price"] != stored_token["price"] or token["liquidity"] != stored_token["liquidity"]: # If there is any change, store the token.
+                new_or_changed_tokens.append((token, stored_token))
+        else: # If not in the db, store the token.
+            new_or_changed_tokens.append((token, {}))
 
     
     logging.info(f"Found {len(new_or_changed_tokens)} new or changed tokens.")
@@ -59,39 +58,33 @@ async def get_new_or_changed_tokens(tokens: list) -> list:
 
 async def get_alert_worthy_tokens(tokens: list) -> list:
     alert_worthy_tokens = []
-    async with POOL.acquire() as db:
-        for token in tokens:
-            result = await db.fetch("SELECT * FROM solana_tokens WHERE address = $1", token["address"])
+    for token, stored_token in tokens:
+        if not stored_token: # If token is not stored in the db, it is alert-worthy, but with a special alert.
+            alert_worthy_token = dict(token)
+            alert_worthy_token["new_token"] = True # Create a new key signifying it is a new token.
+            alert_worthy_tokens.append(alert_worthy_token)
+            continue
 
-            if not result: # If token is not stored in the db, it is alert-worthy, but with a special alert.
-                stored_token = {}
-                alert_worthy_token = dict(token)
-                alert_worthy_token["new_token"] = True # Create a new key signifying it is a new token.
-                alert_worthy_tokens.append(alert_worthy_token)
-                continue
-            else:
-                stored_token = result[0]
+        price = token["price"]
+        stored_price = stored_token["price"]
+        liquidity = token["liquidity"]
 
-            price = token["price"]
-            stored_price = stored_token["price"]
-            liquidity = token["liquidity"]
+        if liquidity >= 5_000_000:
+            alert_threshold = 0.4
+        elif 500_000 <= liquidity < 5_000_000:
+            alert_threshold = 1
+        elif 50_000 <= liquidity < 500_000:
+            alert_threshold = 2
+        else:
+            alert_threshold = 6
+        
+        percent_change = ((price - stored_price) / stored_price) * 100
 
-            if liquidity >= 5_000_000:
-                alert_threshold = 0.4
-            elif 500_000 <= liquidity < 5_000_000:
-                alert_threshold = 1
-            elif 50_000 <= liquidity < 500_000:
-                alert_threshold = 2
-            else:
-                alert_threshold = 6
-            
-            percent_change = ((price - stored_price) / stored_price) * 100
-
-            if abs(percent_change) >= alert_threshold:
-                alert_worthy_token = dict(token)
-                alert_worthy_token["new_token"] = False
-                alert_worthy_token["percent_change"] = percent_change
-                alert_worthy_tokens.append(alert_worthy_token)
+        if abs(percent_change) >= alert_threshold:
+            alert_worthy_token = dict(token)
+            alert_worthy_token["new_token"] = False
+            alert_worthy_token["percent_change"] = percent_change
+            alert_worthy_tokens.append(alert_worthy_token)
 
 
     logging.info(f"Found a total of {len(alert_worthy_tokens)} alert-worthy tokens.")
@@ -128,21 +121,20 @@ async def alert_user(tokens: list, user_chat_id: int, session: AsyncSession) -> 
     
     logging.info(f"Alerted user with chat id {user_chat_id} for {', '.join([token['symbol'] for token in tokens])}.\n\n")
 
-async def update_token_info(tokens: list) -> None:
-    async with POOL.acquire() as db:
-        for token in tokens:
-            token_data = [token["symbol"], token["address"], token["logo"], token["price"], token["liquidity"]]
-            result = await db.fetch("SELECT * FROM solana_tokens WHERE address = $1", token["address"])
-            
-            if not result: # If token is not stored in the db, insert it.
-                insertion = await db.fetchrow("""INSERT INTO solana_tokens (symbol, address, logo, price, liquidity, last_updated)
-                                              VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *""", *token_data)
-                logging.info(f"NEW TOKEN INSERTED: {token['address']}.")
-                continue
-            
-            stored_token = result[0]
-            update = await db.fetchrow("UPDATE solana_tokens SET price = $1, liquidity = $2, last_updated = NOW() WHERE address = $3", token["price"], token["liquidity"], token["address"])
-            logging.info(f"TOKEN UPDATED: {token['address']}.")
+async def update_token_info(tokens: list, db) -> None:
+    for token, stored_token in tokens:
+        token_data = [token["symbol"], token["address"], token["logo"], token["price"], token["liquidity"]]
+        result = await db.fetch("SELECT * FROM solana_tokens WHERE address = $1", token["address"])
+        
+        if not result: # If token is not stored in the db, insert it.
+            insertion = await db.fetchrow("""INSERT INTO solana_tokens (symbol, address, logo, price, liquidity, last_updated)
+                                            VALUES ($1, $2, $3, $4, $5, NOW()) RETURNING *""", *token_data)
+            logging.info(f"NEW TOKEN INSERTED: {token['address']}.")
+            continue
+        
+        stored_token = result[0]
+        update = await db.fetchrow("UPDATE solana_tokens SET price = $1, liquidity = $2, last_updated = NOW() WHERE address = $3", token["price"], token["liquidity"], token["address"])
+        logging.info(f"TOKEN UPDATED: {token['address']}.")
 
 async def main() -> None:
     start_time = time.perf_counter()
@@ -150,27 +142,30 @@ async def main() -> None:
     # Create database pool
     logging.info("STARTING SOLANA SCRAPER\n")
     await init_pool()
-    
-    # Get subscribed users
+
     async with POOL.acquire() as db:
+        # Get subscribed users
         users = await db.fetch("SELECT * FROM users")
 
-    # Get latest token data
-    tokens = get_token_data()
+        # Get latest token data
+        tokens = get_token_data()
 
-    # Get changed or new token data
-    new_tokens = await get_new_or_changed_tokens(tokens)
+        # Get changed or new token data
+        new_tokens = await get_new_or_changed_tokens(tokens, db)
 
-    # Get alert-worthy tokens
-    alert_worthy_tokens = await get_alert_worthy_tokens(new_tokens)
+        # Get alert-worthy tokens
+        alert_worthy_tokens = await get_alert_worthy_tokens(new_tokens)
+
+        
+        # Update database records
+        await update_token_info(new_tokens, db)
 
     # Send alerts
     if alert_worthy_tokens and users:
         async with AsyncSession() as session:
             await asyncio.gather(*(alert_user(alert_worthy_tokens, user["chat_id"], session) for user in users))
     
-    # Update database records
-    await update_token_info(new_tokens)
+
 
     end_time = time.perf_counter()
     logging.info(f"SCRAPING FINISHED IN {round(end_time - start_time, 2)} SECONDS.")
