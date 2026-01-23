@@ -11,7 +11,7 @@ import os
 
 BOT_TOKEN = os.environ.get("SOLANA_BOT_TOKEN")
 TELEGRAM_API = "https://api.telegram.org/bot"
-DATABASE_URL = os.environ.get("SOLANA_BOT_DB_URL")
+DB_PASSWORD = os.environ.get("LOCAL_PG_PASSWORD")
 BIRDEYE_INT_API_URL = "https://multichain-api.birdeye.so/[block_chain]/v3/gems"
 POOL: Union[Pool, None] = None
 MESSAGE_LIMIT = Semaphore(20)
@@ -92,7 +92,7 @@ async def get_alert_worthy_tokens(tokens: list) -> list:
 
 async def init_pool() -> None:
     global POOL
-    POOL = await asyncpg.create_pool(DATABASE_URL, min_size=1, max_size=20)
+    POOL = await asyncpg.create_pool(f"postgresql://postgres:{DB_PASSWORD}@localhost:5433/solana_bot")
 
 @limit_concurrency
 async def alert_user(tokens: list, user_chat_id: int, session: AsyncSession) -> None:
