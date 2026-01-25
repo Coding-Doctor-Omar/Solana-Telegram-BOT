@@ -8,6 +8,7 @@ test.py
 test_2.py
 test_3.py
 db.py
+restart_bot.py
 
 # Ignore bat files
 *.bat
