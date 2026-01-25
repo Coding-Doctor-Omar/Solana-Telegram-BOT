@@ -100,7 +100,7 @@ async def alert_user(tokens: list, user_chat_id: int, session: AsyncSession) -> 
     for token in tokens:
         token_url = f"https://birdeye.so/solana/token/{token['address']}"
         if token.get("new_token"): # If this is a new token, give it the alert below:
-            alert = f'[NEW TRENDING TOKEN]\n\nToken: {token['symbol']}\n\nPrice: {token['price']}\n\nAddress: {token['address']}\n\n<a href="{token_url}">Live Stats</a>'
+            alert = f'[NEW TRENDING TOKEN]\n\nToken: {token["symbol"]}\n\nPrice: {token["price"]}\n\nAddress: {token["address"]}\n\n<a href="{token_url}">Live Stats</a>'
         else:
             if token["percent_change"] > 0:
                  alert = f'[PRICE RISE ALERT]\n\n🟢 △ +{round(token["percent_change"], 2)}%\n\nToken: {token["symbol"]}\n\nPrice: {token["price"]}\n\nAddress: {token["address"]}\n\n<a href="{token_url}">Live Stats</a>'
