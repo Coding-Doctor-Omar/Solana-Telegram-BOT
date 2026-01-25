@@ -11,8 +11,8 @@ import os
 
 BOT_TOKEN = os.environ.get("SOLANA_BOT_TOKEN")
 TELEGRAM_API = "https://api.telegram.org/bot"
-REMOTE_DB_URL = os.environ.get("SOLANA_BOT_DB_URL")
-LOCAL_DB_PASSWORD = os.environ.get("LOCAL_PG_PASSWORD")
+DB_PASSWORD = os.environ.get("LOCAL_PG_PASSWORD")
+DB_URL = f"postgresql://postgres:{DB_PASSWORD}@localhost:5432/solana_bot"
 BIRDEYE_INT_API_URL = "https://multichain-api.birdeye.so/[block_chain]/v3/gems"
 POOL: Union[Pool, None] = None
 MESSAGE_LIMIT = Semaphore(20)
@@ -93,7 +93,7 @@ async def get_alert_worthy_tokens(tokens: list) -> list:
 
 async def init_pool() -> None:
     global POOL
-    POOL = await asyncpg.create_pool(REMOTE_DB_URL)
+    POOL = await asyncpg.create_pool(DB_URL)
 
 @limit_concurrency
 async def alert_user(tokens: list, user_chat_id: int, session: AsyncSession) -> None:
@@ -140,39 +140,30 @@ async def update_token_info(tokens: list, db) -> None:
 async def main() -> None:
     start_time = time.perf_counter()
     
-    # Create database pool (remote db)
+    # Create database pool
     logging.info("STARTING SOLANA SCRAPER\n")
     await init_pool()
 
-    # Get subscribed users (remote db)
+    # Get subscribed users
     async with POOL.acquire() as db:
         users = await db.fetch("SELECT * FROM users")
 
-    # Get latest token data
-    tokens = get_token_data()
+        # Get latest token data
+        tokens = get_token_data()
 
-    tokens_db = await asyncpg.connect(
-        user="postgres",
-        password=LOCAL_DB_PASSWORD,
-        database="solana_bot",
-        host="localhost",
-        port=5432
-    )
-    # Get changed or new token data (local db)
-    new_tokens = await get_new_or_changed_tokens(tokens, tokens_db)
+        # Get changed or new token data (local db)
+        new_tokens = await get_new_or_changed_tokens(tokens, db)
 
-    # Get alert-worthy tokens
-    alert_worthy_tokens = await get_alert_worthy_tokens(new_tokens)
+        # Get alert-worthy tokens
+        alert_worthy_tokens = await get_alert_worthy_tokens(new_tokens)
+        
+        # Update database records
+        await update_token_info(new_tokens, db)
 
-    
-    # Update database records
-    await update_token_info(new_tokens, tokens_db)
-    await tokens_db.close()
-
-    # Send alerts
-    if alert_worthy_tokens and users:
-        async with AsyncSession() as session:
-            await asyncio.gather(*(alert_user(alert_worthy_tokens, user["chat_id"], session) for user in users))
+        # Send alerts
+        if alert_worthy_tokens and users:
+            async with AsyncSession() as session:
+                await asyncio.gather(*(alert_user(alert_worthy_tokens, user["chat_id"], session) for user in users))
     
 
 
