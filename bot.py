@@ -8,7 +8,9 @@ app = Flask(__name__)
 
 BOT_TOKEN = os.environ.get("SOLANA_BOT_TOKEN")
 TELEGRAM_API = "https://api.telegram.org/bot"
-DATABASE_URL = os.environ.get("SOLANA_BOT_DB_URL")
+VPS_IP = os.environ.get("VPS_IP")
+DB_PASSWORD = os.environ.get("VPS_PG_PASSWORD")
+DATABASE_URL = f"postgresql://postgres:{DB_PASSWORD}@{VPS_IP}:5432/solana_bot"
 
 async def subscribe_user(chat_id: Union[int, str]) -> None:
     try:
