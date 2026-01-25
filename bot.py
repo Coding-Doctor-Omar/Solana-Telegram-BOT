@@ -24,13 +24,13 @@ async def subscribe_user(chat_id: Union[int, str]) -> None:
             await db.execute("INSERT INTO users (chat_id) VALUES ($1)", chat_id)
             await db.close()
             send_message(chat_id, msg="You have successfully subscribed to Solana BOT Alerts.")
-    except Exception:
+    except Exception as e:
         try:
             await db.close()
         except Exception:
             pass
         
-        send_message(chat_id, msg="Could not process your request due to an internal server error.")
+        send_message(chat_id, msg=f"Could not process your request due to an internal server error.\n\n{e}")
 
 async def unsubscribe_user(chat_id: Union[int, str]) -> None:
     try:
